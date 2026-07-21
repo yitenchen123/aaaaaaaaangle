@@ -95,7 +95,8 @@ enum TBasicType
     EbtUSampler2DRect,
     EbtUSamplerBuffer,
     EbtUSamplerCubeArray,
-    EbtGuardSamplerEnd = EbtUSamplerCubeArray,  // non type: see implementation of IsSampler()
+    EbtSamplerVideoWEBGL,  // Only valid if WEBGL_video_texture exists.
+    EbtGuardSamplerEnd = EbtSamplerVideoWEBGL,  // non type: see implementation of IsSampler()
 
     // images
     EbtGuardImageBegin,
