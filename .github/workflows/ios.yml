@@ -169,6 +169,16 @@ jobs:
           fi
           tail -5 .gn
 
+          # Work around upstream issue: src/tests/BUILD.gn references
+          # $angle_root:libfeature_support, but that target is not defined in
+          # this checkout (only listed in android/angle_apk.gni's angle_libraries
+          # list for APK packaging). Strip the broken dep so gn gen can succeed.
+          if grep -q 'libfeature_support' src/tests/BUILD.gn 2>/dev/null; then
+            sed -i '' '/libfeature_support/d' src/tests/BUILD.gn
+            echo "Patched src/tests/BUILD.gn to drop undefined libfeature_support dep"
+            grep -n 'angle_test_expectations\|angle_static\|angle_util_static' src/tests/BUILD.gn | head -5
+          fi
+
           gn gen "$OUT_DIR" --threads=$(sysctl -n hw.ncpu)
           gn args "$OUT_DIR" --list --short | head -100
 
