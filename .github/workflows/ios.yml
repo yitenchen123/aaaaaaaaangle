@@ -134,7 +134,10 @@ jobs:
             printf 'angle_enable_d3d11 = false\n'
             printf 'angle_enable_null = false\n'
             printf 'angle_enable_essl = true\n'
-            printf 'angle_enable_glsl = false\n'
+            # ESSL translator reuses BuiltInFunctionEmulatorGLSL.cpp / TranslatorGLSL
+            # (see TranslatorESSL.cpp:143), which is gated on angle_enable_glsl.
+            # Keep glsl enabled to satisfy the linker.
+            printf 'angle_enable_glsl = true\n'
             printf 'angle_enable_cl = false\n'
             printf '\n'
             printf '# Disable things we do not need on iOS\n'
