@@ -89,23 +89,13 @@ jobs:
             python3 scripts/bootstrap.py
           fi
 
-          # Ensure target_os includes iOS
+          # Ensure target_os includes iOS. bootstrap.py only adds 'android'
+          # on Linux, so on macOS we typically just append.
           if ! grep -q "target_os" .gclient; then
             echo "target_os = [ 'ios' ]" >> .gclient
-          else
-            if ! grep -q "'ios'" .gclient; then
-              python3 - <<'PY'
-              import re
-              with open('.gclient') as f:
-                  content = f.read()
-              content = re.sub(r"target_os\s*=\s*\[([^\]]*)\]",
-                               lambda m: "target_os = [" + m.group(1).rstrip() + ", 'ios']"
-                               if "'ios'" not in m.group(0) else m.group(0),
-                               content)
-              with open('.gclient', 'w') as f:
-                  f.write(content)
-              PY
-            fi
+          elif ! grep -q "'ios'" .gclient; then
+            # Append 'ios' to an existing target_os list using sed (BSD-compatible).
+            sed -i '' "s|target_os = \[|target_os = [ 'ios', |" .gclient
           fi
 
           cat .gclient
@@ -126,56 +116,60 @@ jobs:
           export PATH="$PWD/depot_tools:$PATH"
           OUT_DIR="out/ios-${TARGET_ENV}-${TARGET_CPU}"
 
-          # Build args.gn (no leading whitespace — GN is whitespace-sensitive).
+          # Build args.gn. Use printf-style writes (no heredoc) so YAML block
+          # scalar indentation is preserved correctly. GN is fine with each
+          # assignment on its own line.
           mkdir -p "$OUT_DIR"
-          cat > "$OUT_DIR/args.gn" <<EOF
-target_os = "ios"
-target_environment = "${TARGET_ENV}"
-target_cpu = "${TARGET_CPU}"
-
-is_debug = ${IS_DEBUG}
-is_component_build = false
-symbol_level = 1
-
-# ANGLE specific
-angle_enable_metal = true
-angle_enable_gl = false
-angle_enable_vulkan = false
-angle_enable_d3d9 = false
-angle_enable_d3d11 = false
-angle_enable_null = false
-angle_enable_essl = true
-angle_enable_glsl = false
-angle_enable_cl = false
-
-# Disable things we don't need on iOS
-build_angle_deqp_tests = false
-build_angle_end2end_tests_library = false
-angle_with_capture_by_default = false
-
-# Use system clang (Xcode) instead of chrome plugin toolchain expectations.
-clang_use_chrome_plugins = false
-treat_warnings_as_errors = false
-
-# iOS bundle signing (ad-hoc, no developer account required)
-ios_enable_code_signing = false
-
-# Disable rust for iOS standalone build (not needed for frameworks).
-enable_rust = false
-enable_rust_cxx = false
-EOF
+          {
+            printf 'target_os = "ios"\n'
+            printf 'target_environment = "%s"\n' "${TARGET_ENV}"
+            printf 'target_cpu = "%s"\n' "${TARGET_CPU}"
+            printf '\n'
+            printf 'is_debug = %s\n' "${IS_DEBUG}"
+            printf 'is_component_build = false\n'
+            printf 'symbol_level = 1\n'
+            printf '\n'
+            printf '# ANGLE specific\n'
+            printf 'angle_enable_metal = true\n'
+            printf 'angle_enable_gl = false\n'
+            printf 'angle_enable_vulkan = false\n'
+            printf 'angle_enable_d3d9 = false\n'
+            printf 'angle_enable_d3d11 = false\n'
+            printf 'angle_enable_null = false\n'
+            printf 'angle_enable_essl = true\n'
+            printf 'angle_enable_glsl = false\n'
+            printf 'angle_enable_cl = false\n'
+            printf '\n'
+            printf '# Disable things we do not need on iOS\n'
+            printf 'build_angle_deqp_tests = false\n'
+            printf 'build_angle_end2end_tests_library = false\n'
+            printf 'angle_with_capture_by_default = false\n'
+            printf '\n'
+            printf '# Use system clang (Xcode) instead of chrome plugin toolchain expectations.\n'
+            printf 'clang_use_chrome_plugins = false\n'
+            printf 'treat_warnings_as_errors = false\n'
+            printf '\n'
+            printf '# iOS bundle signing (ad-hoc, no developer account required)\n'
+            printf 'ios_enable_code_signing = false\n'
+            printf '\n'
+            printf '# Disable rust for iOS standalone build (not needed for frameworks).\n'
+            printf 'enable_rust = false\n'
+            printf 'enable_rust_cxx = false\n'
+          } > "$OUT_DIR/args.gn"
 
           echo "==== args.gn ===="
           cat "$OUT_DIR/args.gn"
 
           # Apply the same .gn workaround the other workflows use, so build/ can be
-          # evaluated from a non-chromium checkout.
+          # evaluated from a non-chromium checkout. The upstream .gn file does not
+          # contain `expand_directory_allowlist`, so we just append it.
           cp .gn .gn.bak 2>/dev/null || true
           if grep -q 'expand_directory_allowlist' .gn 2>/dev/null; then
-            sed -i '' 's|]|,\n  "//build/modules/BUILD.gn"\n]|' .gn
+            echo "expand_directory_allowlist already present in .gn"
           else
             printf '\nexpand_directory_allowlist = [ "//build/modules/BUILD.gn" ]\n' >> .gn
           fi
+          tail -5 .gn
 
           gn gen "$OUT_DIR" --threads=$(sysctl -n hw.ncpu)
           gn args "$OUT_DIR" --list --short | head -100
