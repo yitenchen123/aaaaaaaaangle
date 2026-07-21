@@ -1,0 +1,267 @@
+name: ANGLE iOS Frameworks
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_environment:
+        description: "Build environment: simulator or device"
+        required: true
+        default: "simulator"
+        type: choice
+        options:
+          - simulator
+          - device
+      target_cpu:
+        description: "Target CPU: x64 (Intel sim), arm64 (Apple silicon sim or device)"
+        required: true
+        default: "arm64"
+        type: choice
+        options:
+          - x64
+          - arm64
+      is_debug:
+        description: "Debug build (true) or Release build (false)"
+        required: true
+        default: "false"
+        type: choice
+        options:
+          - "true"
+          - "false"
+
+jobs:
+  build:
+    name: "Build iOS ${{ inputs.target_environment }} ${{ inputs.target_cpu }} (debug=${{ inputs.is_debug }})"
+    runs-on: macos-14
+    timeout-minutes: 240
+
+    env:
+      TARGET_OS: ios
+      TARGET_ENV: ${{ inputs.target_environment }}
+      TARGET_CPU: ${{ inputs.target_cpu }}
+      IS_DEBUG: ${{ inputs.is_debug }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@main
+        with:
+          fetch-depth: 1
+
+      - name: Select Xcode
+        shell: bash
+        run: |
+          # Pick the latest installed Xcode and switch to it.
+          set -ex
+          ls /Applications | grep -i xcode || true
+          if [ -d /Applications/Xcode.app ]; then
+            sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+          fi
+          xcodebuild -version || true
+          xcode-select -p
+
+      - name: Cache depot_tools
+        id: cache-depot-tools
+        uses: actions/cache@main
+        with:
+          path: |
+            depot_tools
+            third_party/llvm-build
+            tools/flex-bison
+          key: depot-tools-${{ runner.os }}-${{ hashFiles('.gclient') }}
+          restore-keys: |
+            depot-tools-${{ runner.os }}-
+
+      - name: Setup depot_tools
+        if: steps.cache-depot-tools.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          set -ex
+          git clone --depth 1 https://chromium.googlesource.com/chromium/tools/depot_tools.git
+
+      - name: Run gclient sync
+        shell: bash
+        run: |
+          set -ex
+          export PATH="$PWD/depot_tools:$PATH"
+          # Make sure depot_tools uses the system python, not a bundled one.
+          export DEPOT_TOOLS_UPDATE=0
+
+          if [ ! -f .gclient ]; then
+            python3 scripts/bootstrap.py
+          fi
+
+          # Ensure target_os includes iOS
+          if ! grep -q "target_os" .gclient; then
+            echo "target_os = [ 'ios' ]" >> .gclient
+          else
+            if ! grep -q "'ios'" .gclient; then
+              python3 - <<'PY'
+              import re
+              with open('.gclient') as f:
+                  content = f.read()
+              content = re.sub(r"target_os\s*=\s*\[([^\]]*)\]",
+                               lambda m: "target_os = [" + m.group(1).rstrip() + ", 'ios']"
+                               if "'ios'" not in m.group(0) else m.group(0),
+                               content)
+              with open('.gclient', 'w') as f:
+                  f.write(content)
+              PY
+            fi
+          fi
+
+          cat .gclient
+
+          gclient sync --no-history --shallow --reset --force
+
+      - name: ccache
+        uses: hendrikmuhs/ccache-action@main
+        with:
+          key: 'angle-ios-ccache-${{ inputs.target_environment }}-${{ inputs.target_cpu }}'
+          max-size: '8G'
+          update-package-index: 'false'
+
+      - name: Configure GN args
+        shell: bash
+        run: |
+          set -ex
+          export PATH="$PWD/depot_tools:$PATH"
+          OUT_DIR="out/ios-${TARGET_ENV}-${TARGET_CPU}"
+
+          # Build args.gn (no leading whitespace — GN is whitespace-sensitive).
+          mkdir -p "$OUT_DIR"
+          cat > "$OUT_DIR/args.gn" <<EOF
+target_os = "ios"
+target_environment = "${TARGET_ENV}"
+target_cpu = "${TARGET_CPU}"
+
+is_debug = ${IS_DEBUG}
+is_component_build = false
+symbol_level = 1
+
+# ANGLE specific
+angle_enable_metal = true
+angle_enable_gl = false
+angle_enable_vulkan = false
+angle_enable_d3d9 = false
+angle_enable_d3d11 = false
+angle_enable_null = false
+angle_enable_essl = true
+angle_enable_glsl = false
+angle_enable_cl = false
+
+# Disable things we don't need on iOS
+build_angle_deqp_tests = false
+build_angle_end2end_tests_library = false
+angle_with_capture_by_default = false
+
+# Use system clang (Xcode) instead of chrome plugin toolchain expectations.
+clang_use_chrome_plugins = false
+treat_warnings_as_errors = false
+
+# iOS bundle signing (ad-hoc, no developer account required)
+ios_enable_code_signing = false
+
+# Disable rust for iOS standalone build (not needed for frameworks).
+enable_rust = false
+enable_rust_cxx = false
+EOF
+
+          echo "==== args.gn ===="
+          cat "$OUT_DIR/args.gn"
+
+          # Apply the same .gn workaround the other workflows use, so build/ can be
+          # evaluated from a non-chromium checkout.
+          cp .gn .gn.bak 2>/dev/null || true
+          if grep -q 'expand_directory_allowlist' .gn 2>/dev/null; then
+            sed -i '' 's|]|,\n  "//build/modules/BUILD.gn"\n]|' .gn
+          else
+            printf '\nexpand_directory_allowlist = [ "//build/modules/BUILD.gn" ]\n' >> .gn
+          fi
+
+          gn gen "$OUT_DIR" --threads=$(sysctl -n hw.ncpu)
+          gn args "$OUT_DIR" --list --short | head -100
+
+      - name: Build libGLESv2.framework and libEGL.framework
+        shell: bash
+        run: |
+          set -ex
+          export PATH="$PWD/depot_tools:$PATH"
+          OUT_DIR="out/ios-${TARGET_ENV}-${TARGET_CPU}"
+          JOBS=$(sysctl -n hw.ncpu)
+          autoninja -C "$OUT_DIR" -j "$JOBS" libGLESv2 libEGL
+
+      - name: Dump logs on failure
+        if: failure()
+        shell: bash
+        run: |
+          set -x
+          OUT_DIR="out/ios-${TARGET_ENV}-${TARGET_CPU}"
+          find "$OUT_DIR" -name "siso_output" -exec cat {} \; 2>/dev/null || true
+          if [ -f "$OUT_DIR/siso_failed_commands.sh" ]; then
+            chmod +x "$OUT_DIR/siso_failed_commands.sh"
+            "$OUT_DIR/siso_failed_commands.sh" || true
+          fi
+
+      - name: Collect framework artifacts
+        shell: bash
+        run: |
+          set -ex
+          OUT_DIR="out/ios-${TARGET_ENV}-${TARGET_CPU}"
+          STAGE="$PWD/artifacts"
+          mkdir -p "$STAGE"
+
+          # Find the .framework bundles produced by ios_framework_bundle.
+          # They live under $OUT_DIR/$CONFIG or directly under $OUT_DIR.
+          FOUND_FW=0
+          for fw in libGLESv2.framework libEGL.framework libGLESv1_CM.framework; do
+            fw_path=$(find "$OUT_DIR" -type d -name "$fw" -print -quit 2>/dev/null || true)
+            if [ -n "$fw_path" ] && [ -d "$fw_path" ]; then
+              cp -R "$fw_path" "$STAGE/"
+              FOUND_FW=1
+            fi
+          done
+
+          # Also copy the Info.plist files and any associated products.
+          ls -la "$STAGE" || true
+          if [ "$FOUND_FW" = "0" ]; then
+            echo "WARNING: No .framework bundles found in $OUT_DIR"
+            echo "Listing build outputs:"
+            find "$OUT_DIR" -maxdepth 3 -name "*.framework" -o -name "libGLESv2*" -o -name "libEGL*" | head -50
+            # Fallback: copy any .dylib/.a products.
+            find "$OUT_DIR" -maxdepth 2 \( -name "libGLESv2*" -o -name "libEGL*" \) -type f -exec cp {} "$STAGE/" \; || true
+          fi
+
+          # Write a small manifest.
+          {
+            echo "iOS Framework Build Manifest"
+            echo "============================"
+            echo "target_os: ios"
+            echo "target_environment: ${TARGET_ENV}"
+            echo "target_cpu: ${TARGET_CPU}"
+            echo "is_debug: ${IS_DEBUG}"
+            echo "git_sha: ${GITHUB_SHA}"
+            echo "git_ref: ${GITHUB_REF}"
+            echo "run_id: ${GITHUB_RUN_ID}"
+            echo
+            echo "Artifacts:"
+            ls -la "$STAGE"
+          } > "$STAGE/MANIFEST.txt"
+          cat "$STAGE/MANIFEST.txt"
+
+      - name: Upload frameworks
+        uses: actions/upload-artifact@main
+        with:
+          name: angle-ios-frameworks-${{ inputs.target_environment }}-${{ inputs.target_cpu }}-debug${{ inputs.is_debug }}-${{ github.run_number }}
+          path: artifacts/
+          if-no-files-found: error
+
+      - name: Print framework tree (debug)
+        if: always()
+        shell: bash
+        run: |
+          OUT_DIR="out/ios-${TARGET_ENV}-${TARGET_CPU}"
+          echo "=== Build output tree (top) ==="
+          ls -la "$OUT_DIR" | head -50 || true
+          echo "=== Frameworks found ==="
+          find "$OUT_DIR" -type d -name "*.framework" -maxdepth 4 || true
+          echo "=== libGLESv2 / libEGL files ==="
+          find "$OUT_DIR" -maxdepth 4 \( -name "libGLESv2*" -o -name "libEGL*" \) | head -50 || true
