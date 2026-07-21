@@ -1,0 +1,17 @@
+iOS Framework Build Manifest
+============================
+target_os: ios
+target_environment: simulator
+target_cpu: arm64
+is_debug: false
+git_sha: 3606f5e20af8ebff9dfd3a09e5e654b270dd1b31
+git_ref: refs/heads/develop
+run_id: 29819139421
+
+Artifacts:
+total 8
+drwxr-xr-x   5 runner  staff   160 Jul 21 09:53 .
+drwxr-xr-x  59 runner  staff  1888 Jul 21 09:53 ..
+drwxr-xr-x   4 runner  staff   128 Jul 21 09:53 libEGL.framework
+drwxr-xr-x   4 runner  staff   128 Jul 21 09:53 libGLESv2.framework
+-rw-r--r--   1 runner  staff   247 Jul 21 09:53 MANIFEST.txt
