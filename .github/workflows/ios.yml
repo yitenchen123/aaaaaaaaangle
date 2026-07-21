@@ -31,7 +31,7 @@ on:
 jobs:
   build:
     name: "Build iOS ${{ inputs.target_environment }} ${{ inputs.target_cpu }} (debug=${{ inputs.is_debug }})"
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 240
 
     env:
