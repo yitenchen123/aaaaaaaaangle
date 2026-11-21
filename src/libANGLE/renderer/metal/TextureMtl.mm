@@ -2294,7 +2294,8 @@ angle::Result TextureMtl::bindToShaderImpl(const gl::Context *context,
 }
 
 angle::Result TextureMtl::bindToShaderImage(const gl::Context *context,
-                                            mtl::RenderCommandEncoder *cmdEncoder,
+                                            mtl::RenderCommandEncoder *renderCmdEncoder,
+                                            mtl::ComputeCommandEncoder *computeCmdEncoder,
                                             gl::ShaderType shaderType,
                                             int textureSlotIndex,
                                             int level,
@@ -2325,7 +2326,15 @@ angle::Result TextureMtl::bindToShaderImage(const gl::Context *context,
                                                                     imageAccessFormat.metalFormat);
     }
 
-    cmdEncoder->setRWTexture(shaderType, textureRef, textureSlotIndex);
+    if (renderCmdEncoder)
+    {
+        renderCmdEncoder->setRWTexture(shaderType, textureRef, textureSlotIndex);
+    }
+    else
+    {
+        ASSERT(computeCmdEncoder != nullptr);
+        computeCmdEncoder->setTextureForWrite(textureRef, textureSlotIndex);
+    }
     return angle::Result::Continue;
 }
 

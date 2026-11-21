@@ -996,6 +996,9 @@ void DisplayMtl::initializeExtensions() const
     mNativeExtensions.polygonModeANGLE              = true;
     mNativeExtensions.polygonOffsetClampEXT         = true;
     mNativeExtensions.stencilTexturingANGLE         = true;
+    mNativeExtensions.gpuShader5EXT          = true;
+    mNativeExtensions.copyImageEXT           = true;
+    mNativeExtensions.copyImageOES           = true;
     mNativeExtensions.copyTextureCHROMIUM           = true;
     mNativeExtensions.copyCompressedTextureCHROMIUM = false;
     mNativeExtensions.textureMirrorClampToEdgeEXT   = true;
@@ -1204,6 +1207,17 @@ void DisplayMtl::initializeExtensions() const
     // encoders, and for vertex-to-vertex and vertex-to-fragment stages of render command encoders."
     mHasFragmentMemoryBarriers = !supportsAppleGPUFamily(3);
 
+    // ES 3.1/3.2 general image load/store, in addition to the PLS image units above.
+    // Metal can bind read/write textures in all stages; the PLS path already exercises this.
+    // Eight units is enough for shader packs and compute post-processing.
+    mNativeCaps.maxImageUnits            = 8;
+    mNativeCaps.maxCombinedImageUniforms = 8;
+    mNativeCaps.maxShaderImageUniforms[gl::ShaderType::Vertex]   = 8;
+    mNativeCaps.maxShaderImageUniforms[gl::ShaderType::Fragment] = 8;
+    mNativeCaps.maxShaderImageUniforms[gl::ShaderType::Compute]  = 8;
+    // MAX_COMBINED_SHADER_OUTPUT_RESOURCES = MAX_DRAW_BUFFERS + MAX_COMBINED_IMAGE_UNIFORMS.
+    mNativeCaps.maxCombinedShaderOutputResources =
+        mNativeCaps.maxDrawBuffers + mNativeCaps.maxCombinedImageUniforms;
 }
 
 void DisplayMtl::initializeTextureCaps() const

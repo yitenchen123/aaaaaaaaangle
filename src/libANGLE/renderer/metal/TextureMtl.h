@@ -195,7 +195,8 @@ class TextureMtl : public TextureImpl
                                          int samplerSlotIndex);
 
     angle::Result bindToShaderImage(const gl::Context *context,
-                                    mtl::RenderCommandEncoder *cmdEncoder,
+                                    mtl::RenderCommandEncoder *renderCmdEncoder,
+                                    mtl::ComputeCommandEncoder *computeCmdEncoder,
                                     gl::ShaderType shaderType,
                                     int textureSlotIndex,
                                     int level,

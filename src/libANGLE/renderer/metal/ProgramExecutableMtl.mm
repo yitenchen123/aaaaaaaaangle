@@ -1321,43 +1321,58 @@ angle::Result ProgramExecutableMtl::updateTextures(const gl::Context *glContext,
             }  // for array elements
         }      // for sampler bindings
 
-        for (const gl::ImageBinding &imageBinding : mExecutable->getImageBindings())
-        {
-            if (imageBinding.boundImageUnits.size() != 1)
-            {
-                UNIMPLEMENTED();
-                continue;
-            }
-
-            int glslImageBinding    = imageBinding.boundImageUnits[0];
-            if (glslImageBinding < 0 ||
-                glslImageBinding >= static_cast<int>(shaderInfo.actualImageBindings.size()))
-            {
-                continue;
-            }
-            int mtlRWTextureBinding = shaderInfo.actualImageBindings[glslImageBinding];
-            if (mtlRWTextureBinding < 0 ||
-                mtlRWTextureBinding >= static_cast<int>(mtl::kMaxShaderImages))
-            {
-                continue;  // The program does not have an image bound at this unit.
-            }
-
-            const gl::ImageUnit &imageUnit = glState.getImageUnit(glslImageBinding);
-            if (imageUnit.texture.get() == nullptr)
-            {
-                continue;  // Unbound image unit.
-            }
-            TextureMtl *textureMtl = mtl::GetImpl(imageUnit.texture.get());
-            if (imageUnit.layered)
-            {
-                UNIMPLEMENTED();
-                continue;
-            }
-            ANGLE_TRY(textureMtl->bindToShaderImage(
-                glContext, cmdEncoder, shaderType, static_cast<uint32_t>(mtlRWTextureBinding),
-                imageUnit.level, imageUnit.layer, imageUnit.format));
-        }
+        ANGLE_TRY(bindShaderImages(glContext, cmdEncoder, nullptr, shaderType, shaderInfo));
     }  // for shader types
+
+    return angle::Result::Continue;
+}
+
+angle::Result ProgramExecutableMtl::bindShaderImages(
+    const gl::Context *glContext,
+    mtl::RenderCommandEncoder *renderCmdEncoder,
+    mtl::ComputeCommandEncoder *computeCmdEncoder,
+    gl::ShaderType shaderType,
+    const mtl::TranslatedShaderInfo &shaderInfo)
+{
+    const gl::State &glState = glContext->getState();
+
+    for (const gl::ImageBinding &imageBinding : mExecutable->getImageBindings())
+    {
+        if (imageBinding.boundImageUnits.size() != 1)
+        {
+            UNIMPLEMENTED();
+            continue;
+        }
+
+        int glslImageBinding = imageBinding.boundImageUnits[0];
+        if (glslImageBinding < 0 ||
+            glslImageBinding >= static_cast<int>(shaderInfo.actualImageBindings.size()))
+        {
+            continue;
+        }
+        int mtlRWTextureBinding = shaderInfo.actualImageBindings[glslImageBinding];
+        if (mtlRWTextureBinding < 0 ||
+            mtlRWTextureBinding >= static_cast<int>(mtl::kMaxShaderImages))
+        {
+            continue;  // The program does not have an image bound at this unit.
+        }
+
+        const gl::ImageUnit &imageUnit = glState.getImageUnit(glslImageBinding);
+        if (imageUnit.texture.get() == nullptr)
+        {
+            continue;  // Unbound image unit.
+        }
+        TextureMtl *textureMtl = mtl::GetImpl(imageUnit.texture.get());
+        if (imageUnit.layered)
+        {
+            UNIMPLEMENTED();
+            continue;
+        }
+        ANGLE_TRY(textureMtl->bindToShaderImage(
+            glContext, renderCmdEncoder, computeCmdEncoder, shaderType,
+            static_cast<uint32_t>(mtlRWTextureBinding), imageUnit.level, imageUnit.layer,
+            imageUnit.format));
+    }
 
     return angle::Result::Continue;
 }
@@ -1405,6 +1420,9 @@ angle::Result ProgramExecutableMtl::updateComputeTextures(const gl::Context *glC
                                                          samplerSlot));
         }
     }
+
+    ANGLE_TRY(bindShaderImages(glContext, nullptr, cmdEncoder, gl::ShaderType::Compute,
+                               shaderInfo));
 
     return angle::Result::Continue;
 }

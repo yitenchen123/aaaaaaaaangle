@@ -256,6 +256,12 @@ class ProgramExecutableMtl : public ProgramExecutableImpl
     angle::Result updateComputeTextures(const gl::Context *glContext,
                                         mtl::ComputeCommandEncoder *cmdEncoder);
 
+    angle::Result bindShaderImages(const gl::Context *glContext,
+                                   mtl::RenderCommandEncoder *renderCmdEncoder,
+                                   mtl::ComputeCommandEncoder *computeCmdEncoder,
+                                   gl::ShaderType shaderType,
+                                   const mtl::TranslatedShaderInfo &shaderInfo);
+
     angle::Result updateUniformBuffers(ContextMtl *context,
                                        mtl::RenderCommandEncoder *cmdEncoder,
                                        const mtl::RenderPipelineDesc &pipelineDesc);
