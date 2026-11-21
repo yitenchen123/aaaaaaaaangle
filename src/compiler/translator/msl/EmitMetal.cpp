@@ -2505,10 +2505,38 @@ bool GenMetalTraverser::visitAggregate(Visit, TIntermAggregate *aggregateNode)
                 }
                 else if (opName == nullptr)
                 {
-                    const TFunction &func = *aggregateNode->getFunction();
-                    auto it               = mFuncToName.find(func.name());
-                    ASSERT(it != mFuncToName.end());
-                    EmitName(mOut, it->second, kUserVariableNamePrefix);
+                    const TFunction *func = aggregateNode->getFunction();
+
+                    // GetOperatorString() returns nullptr for built-ins that the MSL
+                    // emitter has no dedicated mapping for.  ES 3.2 enabled a number of
+                    // these (notably the textureGather family used heavily by shader
+                    // packs for PCF soft shadows) which are absent from mFuncToName.
+                    //
+                    // Never dereference mFuncToName.end(): ASSERT() is compiled out in
+                    // release builds, and reading end()->second produces a garbage Name
+                    // whose mRawName.mData is an invalid pointer.  Name::emit() then
+                    // calls strcmp(mRawName, "main") on that pointer and segfaults
+                    // (observed as SIGSEGV in _platform_strcmp).  Instead, emit a
+                    // deliberately undefined symbol so the generated MSL fails the
+                    // Metal compile step with a normal, diagnosable error rather than
+                    // crashing the whole process during translation.
+                    auto it = func ? mFuncToName.find(func->name()) : mFuncToName.end();
+                    if (it != mFuncToName.end())
+                    {
+                        EmitName(mOut, it->second, kUserVariableNamePrefix);
+                    }
+                    else
+                    {
+                        mOut << "ANGLE_UNSUPPORTED_BUILTIN_";
+                        if (func && !func->name().empty())
+                        {
+                            mOut << func->name().data();
+                        }
+                        else
+                        {
+                            mOut << "unknown";
+                        }
+                    }
                     emitArgList("(", ")");
                     return false;
                 }
