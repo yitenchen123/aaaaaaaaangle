@@ -2304,6 +2304,18 @@ angle::Result TextureMtl::bindToShaderImage(const gl::Context *context,
 {
     ASSERT(mNativeTextureStorage);
     ContextMtl *contextMtl = mtl::GetImpl(context);
+    // The MSL prelude implements image load/store with 2D texture views, and Metal can only
+    // create such views from 2D, 2D array and cube textures.  Reject the remaining types with a
+    // GL error instead of asserting in the resource layer.
+    const gl::TextureType imageTextureType = mState.getType();
+    ANGLE_CHECK(contextMtl,
+                imageTextureType == gl::TextureType::_2D ||
+                    imageTextureType == gl::TextureType::_2DArray ||
+                    imageTextureType == gl::TextureType::CubeMap,
+                "Shader images are only supported for 2D, 2D array and cube textures.",
+                GL_INVALID_OPERATION);
+    ANGLE_CHECK(contextMtl, mNativeTextureStorage->getNativeTexture()->isShaderWritable(),
+                "Shader image texture is not shader writable.", GL_INVALID_OPERATION);
     // Image units may reference either immutable (glTexStorage*) or mutable (glTexImage2D)
     // textures.  Only immutable textures know their level count up front; for mutable ones use
     // the number of levels that actually have an image defined.
@@ -2311,7 +2323,8 @@ angle::Result TextureMtl::bindToShaderImage(const gl::Context *context,
                                                           : mState.getEnabledLevelCount();
     ANGLE_CHECK(contextMtl, level >= 0 && static_cast<GLuint>(level) < levelCount,
                 "Image level is not defined.", GL_INVALID_OPERATION);
-    ASSERT(0 <= layer && static_cast<uint32_t>(layer) < mSlices);
+    ANGLE_CHECK(contextMtl, layer >= 0 && static_cast<uint32_t>(layer) < mSlices,
+                "Image layer is not defined.", GL_INVALID_OPERATION);
 
     angle::FormatID angleFormatId = angle::Format::InternalFormatToID(format);
     mtl::Format imageAccessFormat = contextMtl->getPixelFormat(angleFormatId);
