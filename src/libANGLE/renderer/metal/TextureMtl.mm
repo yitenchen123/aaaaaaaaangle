@@ -2206,7 +2206,7 @@ angle::Result TextureMtl::bindToShaderImpl(const gl::Context *context,
         }
         ASSERT(samplerState != nil);
 
-        setTexture(mViewFromBaseToMaxLevel, textureSlotIndex);
+        setTexture(mViewFromBaseToMaxLevel->getNativeTexture(), textureSlotIndex);
         // Buffer texture 没有 LOD，minLodClamp / maxLodClamp 填 0。
         setSamplerState(samplerState, 0.f, 0.f, samplerSlotIndex);
 
