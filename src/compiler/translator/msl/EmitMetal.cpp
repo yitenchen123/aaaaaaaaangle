@@ -2351,6 +2351,9 @@ GenMetalTraverser::FuncToName GenMetalTraverser::BuildFuncToName()
     putAngle("textureProjLodOffset");
     putAngle("textureProjOffset");
     putAngle("textureSize");
+    putAngle("textureGather");
+    putAngle("textureGatherOffset");
+    putAngle("textureGatherOffsets");
     putAngle("imageLoad");
     putAngle("imageStore");
     putAngle("memoryBarrierImage");
@@ -2507,7 +2510,16 @@ bool GenMetalTraverser::visitAggregate(Visit, TIntermAggregate *aggregateNode)
                 {
                     const TFunction &func = *aggregateNode->getFunction();
                     auto it               = mFuncToName.find(func.name());
-                    ASSERT(it != mFuncToName.end());
+                    if (it == mFuncToName.end())
+                    {
+                        // Unsupported builtin.  Never dereference end(): that used to emit a
+                        // garbage name and crash inside Name::emit with shader packs that use
+                        // textureGatherOffsets and friends.  Emit an identifier that fails Metal
+                        // compilation so the shader is rejected cleanly instead.
+                        mOut << "ANGLE_UNSUPPORTED_BUILTIN_" << func.name();
+                        emitArgList("(", ")");
+                        return false;
+                    }
                     EmitName(mOut, it->second, kUserVariableNamePrefix);
                     emitArgList("(", ")");
                     return false;

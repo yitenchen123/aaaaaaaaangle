@@ -289,6 +289,13 @@ class ProgramPrelude : public TIntermTraverser
     void textureSize_2DArrayShadow();
     void textureSize_2DMS();
     void textureSize_Buffer();
+    void textureGather_2D();
+    void textureGather_2DArray();
+    void textureGather_Cube();
+    void textureGather_2DShadow();
+    void textureGather_2DArrayShadow();
+    void textureGatherOffset_2D();
+    void textureGatherOffset_2DShadow();
     void imageLoad();
     void imageStore();
     void memoryBarrierImage();
