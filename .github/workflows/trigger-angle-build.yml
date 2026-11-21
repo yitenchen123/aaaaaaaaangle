@@ -1,0 +1,27 @@
+name: Trigger ANGLE build
+
+on:
+  push:
+    branches:
+      - develop
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  dispatch:
+    if: contains(github.event.head_commit.message, '[build]')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch iOS arm64 build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh workflow run build.yml \
+            --repo "${{ github.repository }}" \
+            --ref develop \
+            -f platform=ios \
+            -f ios_arch=arm64 \
+            -f android_arch=arm64+arm64-fastdebug \
+            -f linux_arch=x86_64
