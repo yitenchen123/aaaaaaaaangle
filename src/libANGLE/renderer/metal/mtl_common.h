@@ -176,19 +176,18 @@ constexpr int kEmulatedAlphaValue = 1;
 
 constexpr size_t kOcclusionQueryResultSize = sizeof(uint64_t);
 
-// ES 3.0 mode (Amethyst): report 3.0 so an ES 3.0 context is created and the GL path is selected.
+// ES 3.2 mode (Amethyst): always report 3.2 so an ES 3.2 context is created and the GL path is
+// selected.  This is the default for the Metal backend; do not lower it when syncing upstream.
 //
-// The Metal backend only implements the ES 3.0 feature set completely.  ES 3.1 core vertex
-// attribute binding is not lowered: VertexArrayMtl ignores gl::VertexAttribute::relativeOffset and
-// reads every attribute at the binding offset, so attributes that share one glBindVertexBuffer
-// binding fetch from the wrong address.  MobileGlues gates GL_ARB_vertex_attrib_binding on the
-// GLES version reported by this backend (gles/loader.cpp), so advertising 3.1+ makes Minecraft
-// use its VertexArrayCache.Separate path and renders corrupted geometry.  ES 3.1 shader storage
-// blocks are rejected by the MSL translator for the same reason.
+// NOTE: ES 3.1 vertex attribute binding must stay functional here.  MobileGlues exposes
+// GL_ARB_vertex_attrib_binding to the application whenever this backend reports >= 3.1
+// (gles/loader.cpp), and Minecraft then uses its VertexArrayCache.Separate path.  VertexArrayMtl
+// therefore applies gl::VertexAttribute::relativeOffset on top of the binding offset for both the
+// direct and the converted vertex paths.
 //
 // Keep this in sync with DisplayMtl::getMaxConformantESVersion() (conformant must never exceed
 // supported).
-constexpr gl::Version kMaxSupportedGLVersion = gl::Version(3, 0);
+constexpr gl::Version kMaxSupportedGLVersion = gl::Version(3, 2);
 
 enum class PixelType
 {
