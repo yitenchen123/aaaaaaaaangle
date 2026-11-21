@@ -2323,6 +2323,7 @@ GenMetalTraverser::FuncToName GenMetalTraverser::BuildFuncToName()
     putAngle("texelFetch");
     putAngle("texelFetchOffset");
     putAngle("texture");
+    putAngle("textureGather");
     putAngle("texture2D");
     putAngle("texture2DGradEXT");
     putAngle("texture2DLod");

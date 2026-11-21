@@ -183,6 +183,7 @@ class ProgramPrelude : public TIntermTraverser
     void texelFetchOffset_3D();
     void texelFetchOffset_2DArray();
     void texture_2D();
+    void textureGather_2D();
     void texture_3D();
     void texture_Cube();
     void texture_2DArray();
@@ -1465,6 +1466,24 @@ ANGLE_ALWAYS_INLINE auto ANGLE_texture(
     metal::float2 const coord)
 {
     return env.texture->sample(*env.sampler, coord);
+}
+)",
+                        textureEnv())
+
+// GLSL/ESSL textureGather(sampler2D, coord) returns a float4 holding one
+// component (comp defaults to 0) from the four texels that would be used for
+// bilinear filtering at coord.  Metal's texture2d::gather(sampler, coord)
+// has exactly this semantics (component defaults to x / channel 0), so no
+// coordinate or component fixup is needed.  This is heavily used by Iris
+// shader packs for PCF soft shadows.
+PROGRAM_PRELUDE_DECLARE(textureGather_2D,
+                        R"(
+template <typename T>
+ANGLE_ALWAYS_INLINE auto ANGLE_textureGather(
+    thread ANGLE_TextureEnv<metal::texture2d<T>> &env,
+    metal::float2 const coord)
+{
+    return env.texture->gather(*env.sampler, coord);
 }
 )",
                         textureEnv())
@@ -3172,6 +3191,21 @@ ProgramPrelude::FuncToEmitter ProgramPrelude::BuildFuncToEmitter()
                 return pp.texture2D();
             case 3:
                 return pp.texture2DBias();
+            default:
+                UNREACHABLE();
+        }
+    });
+    // textureGather(sampler2D, coord) — return type and sampler come from the
+    // first parameter; the 2-argument form (no explicit component) is what GLSL
+    // lowers to for the common case.  Register by name so ProgramPrelude emits
+    // the ANGLE_textureGather helper into the shader prelude.
+    putBuiltIn("textureGather", [](ProgramPrelude &pp, const TFunction &func) {
+        switch (func.getParam(0)->getType().getBasicType())
+        {
+            case EbtSampler2D:
+            case EbtISampler2D:
+            case EbtUSampler2D:
+                return pp.textureGather_2D();
             default:
                 UNREACHABLE();
         }
