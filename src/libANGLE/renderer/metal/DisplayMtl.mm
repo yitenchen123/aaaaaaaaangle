@@ -858,8 +858,11 @@ void DisplayMtl::ensureCapsInitialized() const
     mNativeCaps.minProgramTexelOffset = -8;
     mNativeCaps.maxProgramTexelOffset = 7;
 
-    // NOTE(hqle): support storage buffer.
-    const uint32_t maxPerStageStorageBuffers                     = mtl::kMaxShaderSSBOs;
+    // NOTE: The MSL backend cannot yet lower shader storage blocks (unsized/writable arrays and
+    // SSBO argument-buffer encoding are unsupported).  Do not advertise them: a shader using a
+    // buffer block then fails to link with a clear error instead of producing invalid Metal
+    // code (or asserting in the translator).
+    const uint32_t maxPerStageStorageBuffers                     = 0;
     mNativeCaps.maxShaderStorageBlocks[gl::ShaderType::Vertex]   = maxPerStageStorageBuffers;
     mNativeCaps.maxShaderStorageBlocks[gl::ShaderType::Fragment] = maxPerStageStorageBuffers;
     mNativeCaps.maxShaderStorageBlocks[gl::ShaderType::Compute]  = maxPerStageStorageBuffers;
@@ -881,8 +884,8 @@ void DisplayMtl::ensureCapsInitialized() const
             256;  // constant buffers on all other GPUs must be aligned to 256.
     }
 
-    mNativeCaps.maxShaderStorageBufferBindings     = mtl::kMaxShaderSSBOs;
-    mNativeCaps.maxShaderStorageBlockSize          = 1 << 27;
+    mNativeCaps.maxShaderStorageBufferBindings     = 0;
+    mNativeCaps.maxShaderStorageBlockSize          = 0;
     mNativeCaps.shaderStorageBufferOffsetAlignment = 16;
 
     // UBO plus default uniform limits
@@ -1187,6 +1190,9 @@ void DisplayMtl::initializeExtensions() const
             mNativeCaps.maxShaderImageUniforms[gl::ShaderType::Fragment] =
                 gl::IMPLEMENTATION_MAX_PIXEL_LOCAL_STORAGE_PLANES;
             mNativeCaps.maxImageUnits = gl::IMPLEMENTATION_MAX_PIXEL_LOCAL_STORAGE_PLANES;
+            // MAX_COMBINED_IMAGE_UNIFORMS must be at least as large as MAX_IMAGE_UNITS.
+            mNativeCaps.maxCombinedImageUniforms =
+                gl::IMPLEMENTATION_MAX_PIXEL_LOCAL_STORAGE_PLANES;
         }
     }
 

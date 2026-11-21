@@ -2131,6 +2131,52 @@ angle::Result TextureMtl::bindToShader(const gl::Context *context,
                                        int textureSlotIndex,
                                        int samplerSlotIndex)
 {
+    return bindToShaderImpl(context, cmdEncoder, nullptr, shaderType, sampler, textureSlotIndex,
+                            samplerSlotIndex);
+}
+
+angle::Result TextureMtl::bindToShaderForCompute(const gl::Context *context,
+                                                 mtl::ComputeCommandEncoder *cmdEncoder,
+                                                 gl::Sampler *sampler,
+                                                 int textureSlotIndex,
+                                                 int samplerSlotIndex)
+{
+    return bindToShaderImpl(context, nullptr, cmdEncoder, gl::ShaderType::Compute, sampler,
+                            textureSlotIndex, samplerSlotIndex);
+}
+
+angle::Result TextureMtl::bindToShaderImpl(const gl::Context *context,
+                                           mtl::RenderCommandEncoder *renderCmdEncoder,
+                                           mtl::ComputeCommandEncoder *computeCmdEncoder,
+                                           gl::ShaderType shaderType,
+                                           gl::Sampler *sampler,
+                                           int textureSlotIndex,
+                                           int samplerSlotIndex)
+{
+    ASSERT(renderCmdEncoder != nullptr || computeCmdEncoder != nullptr);
+    auto setTexture = [&](const mtl::TextureRef &texture, int slot) {
+        if (renderCmdEncoder)
+        {
+            renderCmdEncoder->setTexture(shaderType, texture, static_cast<uint32_t>(slot));
+        }
+        else
+        {
+            computeCmdEncoder->setTexture(texture, static_cast<uint32_t>(slot));
+        }
+    };
+    auto setSamplerState = [&](id<MTLSamplerState> state, float minLod, float maxLod, int slot) {
+        if (renderCmdEncoder)
+        {
+            renderCmdEncoder->setSamplerState(shaderType, state, minLod, maxLod,
+                                              static_cast<uint32_t>(slot));
+        }
+        else
+        {
+            computeCmdEncoder->setSamplerState(state, minLod, maxLod,
+                                               static_cast<uint32_t>(slot));
+        }
+    };
+
     ASSERT(mNativeTextureStorage);
     ASSERT(mViewFromBaseToMaxLevel);
 
@@ -2160,10 +2206,9 @@ angle::Result TextureMtl::bindToShader(const gl::Context *context,
         }
         ASSERT(samplerState != nil);
 
-        cmdEncoder->setTexture(shaderType, mViewFromBaseToMaxLevel->getNativeTexture(),
-                               textureSlotIndex);
+        setTexture(mViewFromBaseToMaxLevel, textureSlotIndex);
         // Buffer texture 没有 LOD，minLodClamp / maxLodClamp 填 0。
-        cmdEncoder->setSamplerState(shaderType, samplerState, 0.f, 0.f, samplerSlotIndex);
+        setSamplerState(samplerState, 0.f, 0.f, samplerSlotIndex);
 
         return angle::Result::Continue;
     }
@@ -2242,9 +2287,8 @@ angle::Result TextureMtl::bindToShader(const gl::Context *context,
 
     minLodClamp = std::max(minLodClamp, 0.f);
 
-    cmdEncoder->setTexture(shaderType, mSwizzleStencilSamplingView, textureSlotIndex);
-    cmdEncoder->setSamplerState(shaderType, samplerState, minLodClamp, maxLodClamp,
-                                samplerSlotIndex);
+    setTexture(mSwizzleStencilSamplingView, textureSlotIndex);
+    setSamplerState(samplerState, minLodClamp, maxLodClamp, samplerSlotIndex);
 
     return angle::Result::Continue;
 }
@@ -2258,17 +2302,22 @@ angle::Result TextureMtl::bindToShaderImage(const gl::Context *context,
                                             GLenum format)
 {
     ASSERT(mNativeTextureStorage);
-    ASSERT(mState.getImmutableFormat());
-    ASSERT(0 <= level && static_cast<uint32_t>(level) < mState.getImmutableLevels());
+    ContextMtl *contextMtl = mtl::GetImpl(context);
+    // Image units may reference either immutable (glTexStorage*) or mutable (glTexImage2D)
+    // textures.  Only immutable textures know their level count up front; for mutable ones use
+    // the number of levels that actually have an image defined.
+    const GLuint levelCount = mState.getImmutableFormat() ? mState.getImmutableLevels()
+                                                          : mState.getEnabledLevelCount();
+    ANGLE_CHECK(contextMtl, level >= 0 && static_cast<GLuint>(level) < levelCount,
+                "Image level is not defined.", GL_INVALID_OPERATION);
     ASSERT(0 <= layer && static_cast<uint32_t>(layer) < mSlices);
 
-    ContextMtl *contextMtl        = mtl::GetImpl(context);
     angle::FormatID angleFormatId = angle::Format::InternalFormatToID(format);
     mtl::Format imageAccessFormat = contextMtl->getPixelFormat(angleFormatId);
     LayerLevelTextureViewVector &textureViewVector =
         mShaderImageViews[imageAccessFormat.metalFormat];
     mtl::TextureRef &textureRef = GetLayerLevelTextureView(&textureViewVector, layer, level,
-                                                           mSlices, mState.getImmutableLevels());
+                                                           mSlices, levelCount);
 
     if (textureRef == nullptr)
     {
