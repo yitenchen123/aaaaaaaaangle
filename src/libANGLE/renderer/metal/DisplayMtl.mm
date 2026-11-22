@@ -1210,12 +1210,18 @@ void DisplayMtl::initializeExtensions() const
 
     // ES 3.1/3.2 general image load/store, in addition to the PLS image units above.
     // Metal can bind read/write textures in all stages; the PLS path already exercises this.
-    // Eight units is enough for shader packs and compute post-processing.
-    mNativeCaps.maxImageUnits            = 8;
-    mNativeCaps.maxCombinedImageUniforms = 8;
-    mNativeCaps.maxShaderImageUniforms[gl::ShaderType::Vertex]   = 8;
-    mNativeCaps.maxShaderImageUniforms[gl::ShaderType::Fragment] = 8;
-    mNativeCaps.maxShaderImageUniforms[gl::ShaderType::Compute]  = 8;
+    // Shader packs (Iris) assign explicit layout(binding=N) image units well above the tiny
+    // PLS plane count; advertise a practical limit so their compute shaders compile instead of
+    // failing with "image binding greater than gl_MaxImageUnits". Keep this in sync with
+    // mtl::kMaxShaderImages, which sizes the GLSL-binding-indexed reflection array.
+    constexpr GLint kMaxShaderImageUnits = 32;
+    static_assert(kMaxShaderImageUnits <= gl::IMPLEMENTATION_MAX_IMAGE_UNITS,
+                  "Image unit cap exceeds the ANGLE implementation limit");
+    mNativeCaps.maxImageUnits            = kMaxShaderImageUnits;
+    mNativeCaps.maxCombinedImageUniforms = kMaxShaderImageUnits;
+    mNativeCaps.maxShaderImageUniforms[gl::ShaderType::Vertex]   = kMaxShaderImageUnits;
+    mNativeCaps.maxShaderImageUniforms[gl::ShaderType::Fragment] = kMaxShaderImageUnits;
+    mNativeCaps.maxShaderImageUniforms[gl::ShaderType::Compute]  = kMaxShaderImageUnits;
     // MAX_COMBINED_SHADER_OUTPUT_RESOURCES = MAX_DRAW_BUFFERS + MAX_COMBINED_IMAGE_UNIFORMS.
     mNativeCaps.maxCombinedShaderOutputResources =
         mNativeCaps.maxDrawBuffers + mNativeCaps.maxCombinedImageUniforms;
