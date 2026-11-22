@@ -117,10 +117,11 @@ constexpr uint32_t kMaxShaderSamplers    = 16;
 constexpr size_t kInlineConstDataMaxSize = 4 * 1024;
 constexpr size_t kDefaultUniformsMaxSize = 16 * 1024;
 constexpr uint32_t kMaxViewports = 1;
-// Sizes the GLSL-binding-indexed actualImageBindings reflection array. Shader packs use explicit
-// layout(binding=N) image units far above the PLS plane count, so this must cover the advertised
-// maxImageUnits (see DisplayMtl::initializeNativeCaps). Keep >= PLS planes.
-constexpr uint32_t kMaxShaderImages = 32;
+// Sizes the GLSL-binding-indexed actualImageBindings reflection array. Shader packs (Iris) assign
+// image bindings from one global namespace, so a binding number can be much larger than the number
+// of images actually used. This must cover the advertised maxImageUnits
+// (gl::IMPLEMENTATION_MAX_IMAGE_UNITS, see DisplayMtl::initializeNativeCaps). Keep >= PLS planes.
+constexpr uint32_t kMaxShaderImages = gl::IMPLEMENTATION_MAX_IMAGE_UNITS;
 static_assert(kMaxShaderImages >= gl::IMPLEMENTATION_MAX_PIXEL_LOCAL_STORAGE_PLANES,
               "kMaxShaderImages must cover the PLS planes");
 

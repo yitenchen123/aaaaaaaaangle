@@ -1210,11 +1210,14 @@ void DisplayMtl::initializeExtensions() const
 
     // ES 3.1/3.2 general image load/store, in addition to the PLS image units above.
     // Metal can bind read/write textures in all stages; the PLS path already exercises this.
-    // Shader packs (Iris) assign explicit layout(binding=N) image units well above the tiny
-    // PLS plane count; advertise a practical limit so their compute shaders compile instead of
-    // failing with "image binding greater than gl_MaxImageUnits". Keep this in sync with
-    // mtl::kMaxShaderImages, which sizes the GLSL-binding-indexed reflection array.
-    constexpr GLint kMaxShaderImageUnits = 32;
+    // Shader packs (Iris) renumber image/sampler resources into one global binding namespace, so a
+    // single compute shader can receive an image binding far above its actual resource count.
+    // Advertise the full ANGLE implementation limit so these never fail with
+    // "image binding greater than gl_MaxImageUnits". Native GLES drivers expose a similarly high
+    // limit, which is why the same pack loads on Android. This is safe: MSL uses a compact
+    // mMainTextureIndex, so the binding number only indexes reflection arrays, not real textures.
+    // Keep in sync with mtl::kMaxShaderImages, which sizes the GLSL-binding-indexed array.
+    constexpr GLint kMaxShaderImageUnits = gl::IMPLEMENTATION_MAX_IMAGE_UNITS;
     static_assert(kMaxShaderImageUnits <= gl::IMPLEMENTATION_MAX_IMAGE_UNITS,
                   "Image unit cap exceeds the ANGLE implementation limit");
     mNativeCaps.maxImageUnits            = kMaxShaderImageUnits;
