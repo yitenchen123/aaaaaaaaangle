@@ -293,6 +293,20 @@ class ProgramPrelude : public TIntermTraverser
     void imageLoad();
     void imageStore();
     void memoryBarrierImage();
+    void atomicFetchAdd();
+    void atomicFetchMin();
+    void atomicFetchMax();
+    void atomicFetchAnd();
+    void atomicFetchOr();
+    void atomicFetchXor();
+    void atomicExchange();
+    void atomicCompSwap();
+    void barrier();
+    void memoryBarrier();
+    void memoryBarrierAtomicCounter();
+    void memoryBarrierBuffer();
+    void memoryBarrierShared();
+    void groupMemoryBarrier();
     void interpolateAtCenter();
     void interpolateAtCentroid();
     void interpolateAtSample();
@@ -2984,6 +2998,105 @@ ANGLE_ALWAYS_INLINE void ANGLE_memoryBarrierImage()
 }
 )")
 
+// ESSL atomic*() built-ins return the value previously held and take an atomic_uint lvalue.
+// Metal's atomic_fetch_*_explicit take a device/threadgroup atomic pointer plus an explicit
+// memory order.  These helpers bridge the two, using relaxed ordering (the GLSL memory model
+// only requires atomicity here; ordering is controlled by the separate barrier built-ins).
+PROGRAM_PRELUDE_DECLARE(atomicFetchAdd, R"(
+ANGLE_ALWAYS_INLINE uint ANGLE_atomicFetchAdd(device metal::atomic_uint *p, uint v)
+{
+    return metal::atomic_fetch_add_explicit(p, v, metal::memory_order_relaxed);
+}
+)")
+PROGRAM_PRELUDE_DECLARE(atomicFetchMin, R"(
+ANGLE_ALWAYS_INLINE uint ANGLE_atomicFetchMin(device metal::atomic_uint *p, uint v)
+{
+    return metal::atomic_fetch_min_explicit(p, v, metal::memory_order_relaxed);
+}
+)")
+PROGRAM_PRELUDE_DECLARE(atomicFetchMax, R"(
+ANGLE_ALWAYS_INLINE uint ANGLE_atomicFetchMax(device metal::atomic_uint *p, uint v)
+{
+    return metal::atomic_fetch_max_explicit(p, v, metal::memory_order_relaxed);
+}
+)")
+PROGRAM_PRELUDE_DECLARE(atomicFetchAnd, R"(
+ANGLE_ALWAYS_INLINE uint ANGLE_atomicFetchAnd(device metal::atomic_uint *p, uint v)
+{
+    return metal::atomic_fetch_and_explicit(p, v, metal::memory_order_relaxed);
+}
+)")
+PROGRAM_PRELUDE_DECLARE(atomicFetchOr, R"(
+ANGLE_ALWAYS_INLINE uint ANGLE_atomicFetchOr(device metal::atomic_uint *p, uint v)
+{
+    return metal::atomic_fetch_or_explicit(p, v, metal::memory_order_relaxed);
+}
+)")
+PROGRAM_PRELUDE_DECLARE(atomicFetchXor, R"(
+ANGLE_ALWAYS_INLINE uint ANGLE_atomicFetchXor(device metal::atomic_uint *p, uint v)
+{
+    return metal::atomic_fetch_xor_explicit(p, v, metal::memory_order_relaxed);
+}
+)")
+PROGRAM_PRELUDE_DECLARE(atomicExchange, R"(
+ANGLE_ALWAYS_INLINE uint ANGLE_atomicExchange(device metal::atomic_uint *p, uint v)
+{
+    return metal::atomic_exchange_explicit(p, v, metal::memory_order_relaxed);
+}
+)")
+// GLSL atomicCompSwap(p, compare, data) returns the old value unconditionally.  Metal's
+// compare-exchange returns bool and writes the actual value into *expected on failure, so seed
+// expected with `compare` and return it: on success it equals compare (the old value), on
+// failure Metal overwrites it with the real old value.  Either way it is GLSL's old value.
+PROGRAM_PRELUDE_DECLARE(atomicCompSwap, R"(
+ANGLE_ALWAYS_INLINE uint ANGLE_atomicCompSwap(device metal::atomic_uint *p, uint compare, uint data)
+{
+    metal::uint expected = compare;
+    metal::atomic_compare_exchange_weak_explicit(p, &expected, data,
+                                                  metal::memory_order_relaxed,
+                                                  metal::memory_order_relaxed);
+    return expected;
+}
+)")
+
+// ESSL barrier built-ins (all zero-argument) mapped to Metal threadgroup/device memory barriers.
+PROGRAM_PRELUDE_DECLARE(barrier, R"(
+ANGLE_ALWAYS_INLINE void ANGLE_barrier()
+{
+    metal::threadgroup_barrier(metal::mem_flags::mem_threadgroup);
+}
+)")
+PROGRAM_PRELUDE_DECLARE(memoryBarrier, R"(
+ANGLE_ALWAYS_INLINE void ANGLE_memoryBarrier()
+{
+    metal::threadgroup_barrier(metal::mem_flags::mem_threadgroup | metal::mem_flags::mem_device);
+}
+)")
+PROGRAM_PRELUDE_DECLARE(memoryBarrierAtomicCounter, R"(
+ANGLE_ALWAYS_INLINE void ANGLE_memoryBarrierAtomicCounter()
+{
+    metal::threadgroup_barrier(metal::mem_flags::mem_device);
+}
+)")
+PROGRAM_PRELUDE_DECLARE(memoryBarrierBuffer, R"(
+ANGLE_ALWAYS_INLINE void ANGLE_memoryBarrierBuffer()
+{
+    metal::threadgroup_barrier(metal::mem_flags::mem_device);
+}
+)")
+PROGRAM_PRELUDE_DECLARE(memoryBarrierShared, R"(
+ANGLE_ALWAYS_INLINE void ANGLE_memoryBarrierShared()
+{
+    metal::threadgroup_barrier(metal::mem_flags::mem_threadgroup);
+}
+)")
+PROGRAM_PRELUDE_DECLARE(groupMemoryBarrier, R"(
+ANGLE_ALWAYS_INLINE void ANGLE_groupMemoryBarrier()
+{
+    metal::threadgroup_barrier(metal::mem_flags::mem_threadgroup | metal::mem_flags::mem_device);
+}
+)")
+
 PROGRAM_PRELUDE_DECLARE(interpolateAtCenter,
                         R"(
 template <typename T, typename P>
@@ -3542,6 +3655,9 @@ ProgramPrelude::FuncToEmitter ProgramPrelude::BuildFuncToEmitter()
     putBuiltIn("imageStore", EMIT_METHOD(imageStore));
     putBuiltIn("memoryBarrierImage", EMIT_METHOD(memoryBarrierImage));
 
+    // ESSL atomic*() and barrier built-ins are handled by explicit cases in visitOperator()
+    // (which inject the ANGLE_* MSL helpers directly), so no function-name mapping is needed.
+
     putBuiltIn("interpolateAtCenter", EMIT_METHOD(interpolateAtCenter));
     putBuiltIn("interpolateAtCentroid", EMIT_METHOD(interpolateAtCentroid));
     putBuiltIn("interpolateAtSample", EMIT_METHOD(interpolateAtSample));
@@ -3988,20 +4104,52 @@ void ProgramPrelude::visitOperator(TOperator op,
         case TOperator::EOpUsubBorrow:
         case TOperator::EOpUmulExtended:
         case TOperator::EOpImulExtended:
-        case TOperator::EOpBarrier:
-        case TOperator::EOpMemoryBarrier:
-        case TOperator::EOpMemoryBarrierAtomicCounter:
-        case TOperator::EOpMemoryBarrierBuffer:
-        case TOperator::EOpMemoryBarrierShared:
-        case TOperator::EOpGroupMemoryBarrier:
+        // ESSL atomic*() and barrier built-ins: inject the MSL helpers that bridge to Metal's
+        // atomic_fetch_*_explicit / threadgroup_barrier APIs.  emitGuard() de-duplicates, so
+        // these can be called once per occurrence in the shader.
         case TOperator::EOpAtomicAdd:
+            atomicFetchAdd();
+            break;
         case TOperator::EOpAtomicMin:
+            atomicFetchMin();
+            break;
         case TOperator::EOpAtomicMax:
+            atomicFetchMax();
+            break;
         case TOperator::EOpAtomicAnd:
+            atomicFetchAnd();
+            break;
         case TOperator::EOpAtomicOr:
+            atomicFetchOr();
+            break;
         case TOperator::EOpAtomicXor:
+            atomicFetchXor();
+            break;
         case TOperator::EOpAtomicExchange:
+            atomicExchange();
+            break;
         case TOperator::EOpAtomicCompSwap:
+            atomicCompSwap();
+            break;
+        case TOperator::EOpBarrier:
+            barrier();
+            break;
+        case TOperator::EOpMemoryBarrier:
+            memoryBarrier();
+            break;
+        case TOperator::EOpMemoryBarrierAtomicCounter:
+            memoryBarrierAtomicCounter();
+            break;
+        case TOperator::EOpMemoryBarrierBuffer:
+            memoryBarrierBuffer();
+            break;
+        case TOperator::EOpMemoryBarrierShared:
+            memoryBarrierShared();
+            break;
+        case TOperator::EOpGroupMemoryBarrier:
+            groupMemoryBarrier();
+            break;
+
         case TOperator::EOpEmitVertex:
         case TOperator::EOpEndPrimitive:
         case TOperator::EOpArrayLength:

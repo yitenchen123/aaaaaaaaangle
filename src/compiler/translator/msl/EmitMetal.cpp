@@ -745,8 +745,10 @@ static const char *GetOperatorString(TOperator op,
         case TOperator::EOpEmitVertex:
         case TOperator::EOpEndPrimitive:
         case TOperator::EOpArrayLength:
-            UNIMPLEMENTED();
-            return "TOperator_TODO";
+            // These are emitted by dedicated branches in visitAggregate (atomic/barrier) or are
+            // not yet supported.  Return nullptr rather than asserting; visitAggregate handles
+            // the supported ones before reaching GetOperatorString.
+            return nullptr;
 
         case TOperator::EOpNull:
         case TOperator::EOpConstruct:
@@ -1036,6 +1038,15 @@ void GenMetalTraverser::emitBareTypeName(const TType &type, const EmitTypeConfig
             {
                 mOut << type.getBasicString();
             }
+        }
+        break;
+
+        case TBasicType::EbtAtomicCounter:
+        {
+            // atomic_uint is a first-class MSL atomic type.  atomic_uint fields can only live in
+            // SSBOs, which are emitted in device address space, and are the target of atomic*()
+            // built-ins lowered by the ANGLE_atomic* prelude helpers.
+            mOut << "metal::atomic_uint";
         }
         break;
 
@@ -2448,6 +2459,96 @@ bool GenMetalTraverser::visitAggregate(Visit, TIntermAggregate *aggregateNode)
                     mTemporarilyDisableSemicolon =
                         true;  // Disable semicolon for macro substitution.
                 }
+                return false;
+            }
+
+            case TOperator::EOpAtomicAdd:
+            case TOperator::EOpAtomicMin:
+            case TOperator::EOpAtomicMax:
+            case TOperator::EOpAtomicAnd:
+            case TOperator::EOpAtomicOr:
+            case TOperator::EOpAtomicXor:
+            case TOperator::EOpAtomicExchange:
+            case TOperator::EOpAtomicCompSwap:
+            {
+                // ESSL atomic*() built-ins operate on an atomic_uint lvalue (typically an SSBO
+                // field) and return the value previously held.  Metal's atomic_fetch_*_explicit
+                // and atomic_compare_exchange_weak_explicit take a pointer to the atomic object
+                // and use explicit memory ordering, so route through prelude helpers that bridge
+                // the two APIs.  The first argument is the atomic lvalue; take its address.
+                const char *helperName = nullptr;
+                switch (op)
+                {
+                    case TOperator::EOpAtomicAdd:
+                        helperName = "ANGLE_atomicFetchAdd";
+                        break;
+                    case TOperator::EOpAtomicMin:
+                        helperName = "ANGLE_atomicFetchMin";
+                        break;
+                    case TOperator::EOpAtomicMax:
+                        helperName = "ANGLE_atomicFetchMax";
+                        break;
+                    case TOperator::EOpAtomicAnd:
+                        helperName = "ANGLE_atomicFetchAnd";
+                        break;
+                    case TOperator::EOpAtomicOr:
+                        helperName = "ANGLE_atomicFetchOr";
+                        break;
+                    case TOperator::EOpAtomicXor:
+                        helperName = "ANGLE_atomicFetchXor";
+                        break;
+                    case TOperator::EOpAtomicExchange:
+                        helperName = "ANGLE_atomicExchange";
+                        break;
+                    case TOperator::EOpAtomicCompSwap:
+                        helperName = "ANGLE_atomicCompSwap";
+                        break;
+                    default:
+                        UNREACHABLE();
+                }
+                mOut << helperName << "(&";
+                ASSERT(!args.empty());
+                args[0]->traverse(this);
+                for (size_t i = 1; i < args.size(); ++i)
+                {
+                    mOut << ", ";
+                    args[i]->traverse(this);
+                }
+                mOut << ")";
+                return false;
+            }
+
+            case TOperator::EOpBarrier:
+            case TOperator::EOpMemoryBarrier:
+            case TOperator::EOpMemoryBarrierAtomicCounter:
+            case TOperator::EOpMemoryBarrierBuffer:
+            case TOperator::EOpMemoryBarrierShared:
+            case TOperator::EOpGroupMemoryBarrier:
+            {
+                const char *helperName = nullptr;
+                switch (op)
+                {
+                    case TOperator::EOpBarrier:
+                        helperName = "ANGLE_barrier";
+                        break;
+                    case TOperator::EOpMemoryBarrierAtomicCounter:
+                        helperName = "ANGLE_memoryBarrierAtomicCounter";
+                        break;
+                    case TOperator::EOpMemoryBarrierBuffer:
+                        helperName = "ANGLE_memoryBarrierBuffer";
+                        break;
+                    case TOperator::EOpMemoryBarrierShared:
+                        helperName = "ANGLE_memoryBarrierShared";
+                        break;
+                    case TOperator::EOpGroupMemoryBarrier:
+                        helperName = "ANGLE_groupMemoryBarrier";
+                        break;
+                    case TOperator::EOpMemoryBarrier:
+                    default:
+                        helperName = "ANGLE_memoryBarrier";
+                        break;
+                }
+                mOut << helperName << "()";
                 return false;
             }
 
