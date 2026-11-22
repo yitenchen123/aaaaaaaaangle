@@ -18,10 +18,11 @@ using namespace sh;
 
 ////////////////////////////////////////////////////////////////////////////////
 
-constexpr std::array<AddressSpace, 3> kAddressSpaces = {
+constexpr std::array<AddressSpace, 4> kAddressSpaces = {
     AddressSpace::Constant,
     AddressSpace::Device,
     AddressSpace::Thread,
+    AddressSpace::Threadgroup,
 };
 
 char const *sh::toString(AddressSpace space)
@@ -34,6 +35,8 @@ char const *sh::toString(AddressSpace space)
             return "device";
         case AddressSpace::Thread:
             return "thread";
+        case AddressSpace::Threadgroup:
+            return "threadgroup";
     }
 }
 

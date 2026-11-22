@@ -103,6 +103,14 @@ class GenMetalTraverser : public TIntermTraverser
     bool visitBlock(Visit, TIntermBlock *) override;
     bool visitGlobalQualifierDeclaration(Visit, TIntermGlobalQualifierDeclaration *) override;
     bool visitDeclaration(Visit, TIntermDeclaration *) override;
+
+    // Pre-populates the set of ESSL `shared` variables found anywhere in the AST.  Called before
+    // the emit traversal so kernel-body injection works regardless of declaration/function order.
+    void setSharedVariables(const std::vector<const TVariable *> &vars)
+    {
+        mSharedVariables = vars;
+    }
+
     bool visitLoop(Visit, TIntermLoop *) override;
     bool visitForLoop(TIntermLoop *);
     bool visitWhileLoop(TIntermLoop *);
@@ -208,6 +216,45 @@ class GenMetalTraverser : public TIntermTraverser
     size_t mSSBOBindingIndexStart          = 0;
     bool mRasterOrderGroupsSupported       = false;
     bool mWriteHelperSampleMask            = false;
+
+    // ESSL `shared` variables in compute shaders must be lowered to Metal `threadgroup`
+    // variables, which are only legal inside the kernel body.  Global declarations are collected
+    // here during the first pass (visitDeclaration) and emitted at the top of the compute main.
+    std::vector<const TVariable *> mSharedVariables;
+    bool mEmitSharedVarsAtNextBlockOpen = false;
+};
+
+// Pre-pass traverser that gathers every ESSL `shared` variable in the AST.  This runs before the
+// emit traversal so that lowering shared->threadgroup does not depend on the relative order of
+// global declarations and function definitions in the root block.
+class SharedVariableCollector : public TIntermTraverser
+{
+  public:
+    SharedVariableCollector() : TIntermTraverser(true, false, false) {}
+
+    bool visitDeclaration(Visit, TIntermDeclaration *declNode) override
+    {
+        ASSERT(declNode->getChildCount() == 1);
+        TIntermNode &node = *declNode->getChildNode(0);
+        TIntermSymbol *sym = node.getAsSymbolNode();
+        if (sym == nullptr)
+        {
+            if (TIntermBinary *init = node.getAsBinaryNode())
+            {
+                sym = init->getLeft()->getAsSymbolNode();
+            }
+        }
+        if (sym != nullptr && sym->variable().getType().getQualifier() == EvqShared)
+        {
+            mShared.push_back(&sym->variable());
+        }
+        return false;
+    }
+
+    const std::vector<const TVariable *> &getSharedVariables() const { return mShared; }
+
+  private:
+    std::vector<const TVariable *> mShared;
 };
 }  // anonymous namespace
 
@@ -2313,6 +2360,15 @@ bool GenMetalTraverser::visitFunctionDefinition(Visit, TIntermFunctionDefinition
     emitIndentation();
     emitFunctionSignature(func);
     mOut << "\n";
+
+    // Inject lowered ESSL `shared` variables as Metal `threadgroup` declarations at the very
+    // start of the compute kernel body.  visitBlock() consumes this flag right after emitting
+    // the opening brace, where threadgroup declarations are legal.
+    if (func.isMain() && mCompiler.getShaderType() == GL_COMPUTE_SHADER &&
+        !mSharedVariables.empty())
+    {
+        mEmitSharedVarsAtNextBlockOpen = true;
+    }
     body.traverse(this);
     if (isTraversingVertexMain)
     {
@@ -2739,6 +2795,21 @@ bool GenMetalTraverser::visitBlock(Visit, TIntermBlock *blockNode)
         {
             ++mIndentLevel;
         }
+
+        // Emit lowered ESSL `shared` variables as `threadgroup` locals at the top of the compute
+        // kernel body.  Metal only permits threadgroup variables inside a kernel function.
+        if (mEmitSharedVarsAtNextBlockOpen)
+        {
+            mEmitSharedVarsAtNextBlockOpen = false;
+            for (const TVariable *sharedVar : mSharedVariables)
+            {
+                emitIndentation();
+                mOut << "threadgroup ";
+                EmitVariableDeclarationConfig sharedConfig;
+                emitVariableDeclaration(VarDecl(*sharedVar), sharedConfig);
+                mOut << ";\n";
+            }
+        }
     }
 
     TIntermNode *prevStmtNode = nullptr;
@@ -2801,6 +2872,16 @@ bool GenMetalTraverser::visitDeclaration(Visit, TIntermDeclaration *declNode)
     if (TIntermSymbol *symbolNode = node.getAsSymbolNode())
     {
         const TVariable &var = symbolNode->variable();
+
+        // ESSL compute `shared` variables are declared at global scope in the AST, but Metal
+        // `threadgroup` variables are only legal inside a kernel function body.  They were
+        // collected in a pre-pass and are emitted at the top of the compute main instead (see
+        // visitFunctionDefinition / visitBlock).  Suppress the global declaration here.
+        if (var.getType().getQualifier() == EvqShared)
+        {
+            return false;
+        }
+
         emitVariableDeclaration(VarDecl(var), evdConfig);
         if (var.getType().isArray() && var.getType().getQualifier() == EvqTemporary)
         {
@@ -3079,6 +3160,13 @@ bool sh::EmitMetal(TCompiler &compiler,
 #endif
         GenMetalTraverser gen(compiler, outWrapper, idGen, pipelineStructs, symbolEnv, ppc,
                               compileOptions);
+
+        // Collect ESSL `shared` variables in a pre-pass; they are lowered to Metal `threadgroup`
+        // locals at the top of the compute kernel body.
+        SharedVariableCollector sharedCollector;
+        root.traverse(&sharedCollector);
+        gen.setSharedVariables(sharedCollector.getSharedVariables());
+
         root.traverse(&gen);
     }
 

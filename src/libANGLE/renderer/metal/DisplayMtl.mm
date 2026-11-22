@@ -1006,6 +1006,21 @@ void DisplayMtl::initializeExtensions() const
     mNativeExtensions.depthClampEXT                 = true;
     mNativeExtensions.rgbxInternalFormatANGLE       = mFeatures.hasTextureSwizzle.enabled;
 
+    // ES 3.1/3.2 shader storage blocks and image atomics are implemented in the MSL translator
+    // (ReduceInterfaceBlocks lowers EvqBuffer interface blocks, and the ANGLE_atomic* prelude
+    // helpers lower image atomic built-ins). These ESSL extension switches let ES 3.0 shader
+    // packs reach the same code paths. Android/ANGLE-Vulkan advertises them unconditionally;
+    // iOS/Metal must do the same so the same shaderpack compiles on both backends.
+    mNativeExtensions.shaderIoBlocksOES = true;
+    mNativeExtensions.shaderIoBlocksEXT = true;
+    mNativeExtensions.shaderImageAtomicOES = true;
+    // DeferGlobalInitializers + the NonConstantGlobals pipeline struct are implemented in the
+    // MSL translator, so advertise the frontend-only extension as Vulkan does.
+    mNativeExtensions.shaderNonConstantGlobalInitializersEXT = true;
+    // Vertex attribute divisor (instancing) is fully emulated on Metal; expose the EXT alias in
+    // addition to the already-enabled ANGLE alias, matching Vulkan.
+    mNativeExtensions.instancedArraysEXT = true;
+
     // EXT_debug_marker is not implemented yet, but the entry points must be exposed for the
     // Metal backend to be used in Chrome (http://anglebug.com/42263519)
     mNativeExtensions.debugMarkerEXT = true;

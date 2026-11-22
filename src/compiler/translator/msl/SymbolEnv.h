@@ -22,6 +22,10 @@ enum class AddressSpace
     Constant,
     Device,
     Thread,
+    // Metal threadgroup memory: shared across the threads of one compute workgroup.  Used when
+    // lowering ESSL `shared` variables in compute shaders (Metal `threadgroup` address space).
+    // Appended at the end so the numeric values of the existing spaces stay stable.
+    Threadgroup,
 };
 
 char const *toString(AddressSpace space);
