@@ -858,11 +858,12 @@ void DisplayMtl::ensureCapsInitialized() const
     mNativeCaps.minProgramTexelOffset = -8;
     mNativeCaps.maxProgramTexelOffset = 7;
 
-    // NOTE: The MSL backend cannot yet lower shader storage blocks (unsized/writable arrays and
-    // SSBO argument-buffer encoding are unsupported).  Do not advertise them: a shader using a
-    // buffer block then fails to link with a clear error instead of producing invalid Metal
-    // code (or asserting in the translator).
-    const uint32_t maxPerStageStorageBuffers                     = 0;
+    // The MSL backend handles shader storage blocks directly in EmitMetal (see
+    // emitFunctionParameter/visitBinary/visitAggregate): a buffer block is emitted as
+    // `device T *p [[buffer(ssboBindingIndexStart + binding)]]`, and runtime binding is done
+    // in ProgramExecutableMtl::bindShaderStorageBuffers.  Advertise the real SSBO limits so
+    // ES 3.1/3.2 shaders (e.g. Iris/Iss compute shaderpacks) can declare buffer blocks.
+    const uint32_t maxPerStageStorageBuffers                     = mtl::kMaxShaderSSBOs;
     mNativeCaps.maxShaderStorageBlocks[gl::ShaderType::Vertex]   = maxPerStageStorageBuffers;
     mNativeCaps.maxShaderStorageBlocks[gl::ShaderType::Fragment] = maxPerStageStorageBuffers;
     mNativeCaps.maxShaderStorageBlocks[gl::ShaderType::Compute]  = maxPerStageStorageBuffers;
@@ -884,8 +885,8 @@ void DisplayMtl::ensureCapsInitialized() const
             256;  // constant buffers on all other GPUs must be aligned to 256.
     }
 
-    mNativeCaps.maxShaderStorageBufferBindings     = 0;
-    mNativeCaps.maxShaderStorageBlockSize          = 0;
+    mNativeCaps.maxShaderStorageBufferBindings     = mtl::kMaxShaderSSBOs;
+    mNativeCaps.maxShaderStorageBlockSize          = 1 << 27;
     mNativeCaps.shaderStorageBufferOffsetAlignment = 16;
 
     // UBO plus default uniform limits

@@ -29,7 +29,6 @@ class Reducer : public TIntermRebuild
     std::unordered_map<const TVariable *, const TVariable *> mInstanceMap;
     InterfaceBlockInstanceVarNameGen &mInstanceVarNameGen;
     const bool mReduceShaderStorageBlocks;
-    bool mHasShaderStorageBlock = false;
 
   public:
     Reducer(TCompiler &compiler,
@@ -39,8 +38,6 @@ class Reducer : public TIntermRebuild
           mInstanceVarNameGen(instanceVarNameGen),
           mReduceShaderStorageBlocks(reduceShaderStorageBlocks)
     {}
-
-    bool hasShaderStorageBlock() const { return mHasShaderStorageBlock; }
 
     PreResult visitDeclarationPre(TIntermDeclaration &declNode) override
     {
@@ -54,12 +51,12 @@ class Reducer : public TIntermRebuild
             const SymbolType symbolType = var.symbolType();
             if (const TInterfaceBlock *interfaceBlock = type.getInterfaceBlock())
             {
-                // The MSL backend cannot lower shader storage blocks yet.  Leave them
-                // untouched and let ReduceInterfaceBlocks fail with a clear error instead
-                // of generating invalid Metal code.
+                // Shader storage blocks are lowered directly by the MSL emitter
+                // (GenMetalTraverser::emitFunctionParameter emits `device T *p [[buffer(N)]]`).
+                // Leave their declarations untouched so they keep the EbtInterfaceBlock type the
+                // emitter looks for; reducing them would turn them into ordinary structs.
                 if (!mReduceShaderStorageBlocks && type.getQualifier() == TQualifier::EvqBuffer)
                 {
-                    mHasShaderStorageBlock = true;
                     return {declNode, VisitBits::Neither};
                 }
                 const bool isEmptySymbol = symbolType == SymbolType::Empty;
@@ -133,12 +130,9 @@ bool sh::ReduceInterfaceBlocks(TCompiler &compiler,
         return false;
     }
 
-    if (reducer.hasShaderStorageBlock())
-    {
-        compiler.getInfoSink().info
-            << "error: shader storage blocks are not supported by the Metal backend.\n";
-        return false;
-    }
+    // Shader storage blocks are intentionally left unreduced (see visitDeclarationPre) so they
+    // keep their EbtInterfaceBlock type.  GenMetalTraverser::emitFunctionParameter lowers them
+    // directly to `device T *p [[buffer(N)]]`.  Do not fail here.
 
     if (!SeparateDeclarations(compiler, root, false))
     {
